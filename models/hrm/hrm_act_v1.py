@@ -354,8 +354,6 @@ class UHRC_Inner(nn.Module):
         seq_H = torch.cat([carry.z_H, new_emb.unsqueeze(1)], dim=1)
         seq_L = torch.cat([carry.z_L, new_emb.unsqueeze(1)], dim=1)
 
-        # ── FIX A: Observation re-injection tensor ────────────────────────
-        # In the HRM, input_embeddings is added to z_H at EVERY L-level
         # call: z_L = L_level(z_L, z_H + input_embeddings).
         # In the UHRC, only position 16 (current obs) has a raw input.
         # Carry positions (0-15) have no corresponding raw input.
@@ -368,25 +366,6 @@ class UHRC_Inner(nn.Module):
         HC = self.config.H_cycles   # 2
         LC = self.config.L_cycles   # 2
 
-        # ── FIX B: HRM one-step gradient approximation ────────────────────
-        #
-        # Original HRM (lines 189-204 of hrm_act_v1.py):
-        #   with torch.no_grad():
-        #       for h in H_cycles:
-        #           for l in L_cycles:
-        #               if not (h==last and l==last): L(z_L, z_H + input)
-        #           if not h==last: H(z_H, z_L)
-        #   # 1-step grad:
-        #   z_L = L(z_L, z_H + input)   ← gradient ON
-        #   z_H = H(z_H, z_L)           ← gradient ON
-        #
-        # With H=2, L=2 this gives:
-        #   no_grad: L, L, H, L  (3 L calls + 1 H call)
-        #   grad:    L, H        (1 L call + 1 H call)
-        #
-        # Gradient path: action → L_final(2 layers) → H_final(2 layers)
-        #                → input_encoder = 4 transformer layers total.
-        # This is 3.5× shallower than gradient through all 14 layers.
 
         with torch.no_grad():
             for h in range(HC):
@@ -407,7 +386,6 @@ class UHRC_Inner(nn.Module):
         subgoal = self.planning_head(z_H[:, -1, :])   # [B, 3]
 
         # ── Subgoal injection → final L pass → action ────────────────────
-        # (FIX D: this extra L pass is WITH gradient — UHRC-specific)
         gate            = self.subgoal_gate(subgoal)          # [B, H]
         subgoal_context = self.subgoal_proj(subgoal) * gate   # [B, H]
         z_L_final = z_L + subgoal_context.unsqueeze(1)        # [B, 17, H]

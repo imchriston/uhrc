@@ -4,7 +4,6 @@ import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
-
 import dynamics
 from generate_data_sensors import get_lidar_scan, sample_forest
 from uhrc_ctrl_h import UHRCController
@@ -16,16 +15,12 @@ MODEL_PATH  = "checkpoints/uhrc_bestA*.pth"
 STATS_PATH  = "checkpoints/norm_statsA*.npz"
 
 NUM_OBS     = 4      # 4-8 in training — 4 for cleaner single tests
-MAX_STEPS   = 1500    # match training STEPS
+MAX_STEPS   = 1500    
 DT          = 0.01
-GOAL_RADIUS = 0.2    # match training goal reach threshold
+GOAL_RADIUS = 0.2   
 
-# Training distribution — model trained on ALL of these ranges.
-# normal  : start x∈[-9,-6] y∈[-5,5]   goal x∈[6,9] y∈[-5,5]
-# omni    : start/goal anywhere in [-10,10]²
-# close   : start within 5m of goal, anywhere in arena
-# recovery: start x∈[0,11]
-# → safe eval range covers the full omni arena
+# Training distribution
+
 TRAIN_X = (-10.0, 10.0)
 TRAIN_Y = (-10.0, 10.0)
 

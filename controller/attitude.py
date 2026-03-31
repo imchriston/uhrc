@@ -103,7 +103,6 @@ class AttitudePID:
 
         return np.array([T, tau_x, tau_y, tau_z], dtype=float)
 
-    # --- THE FIXED CALL METHOD ---
     def __call__(self, t: float, x: NDArray[np.float64]):
         """
         Standard interface for the simulation loop.

@@ -18,7 +18,7 @@ class CascadedPosAttController:
         pos_pi: PositionPI,
         att_pid: AttitudePID,
         sample_time: float = 0.01,
-        max_tilt_deg: float = 35.0  # <--- NEW: Max tilt safety limit
+        max_tilt_deg: float = 35.0  # Max tilt safety limit
     ):
         self.dyn = dyn
         self.pos_pi = pos_pi
@@ -60,7 +60,6 @@ class CascadedPosAttController:
         phi, theta, psi = quat_euler.euler_from_q(q_BI)
 
         # ---- OUTER LOOP ----
-        # 1. Get desired accelerations (unbounded)
         a_des = self.pos_pi.step(self.r_ref, r_I, v_I, dt)
         ax_des, ay_des, _ = a_des 
 
@@ -70,12 +69,10 @@ class CascadedPosAttController:
         spsi = np.sin(psi)
 
         # 2. Linear Map acceleration -> angle
-        # (This is valid only for small angles, so we MUST clamp it)
         theta_d_raw = (ax_des * cpsi + ay_des * spsi) / g
         phi_d_raw   = (ax_des * spsi - ay_des * cpsi) / g
 
-        # 3. SAFETY CLAMP (The Fix for Overshoot)
-        # Prevents requesting 700 degree tilts on 40m errors
+        # 3. SAFETY CLAMP 
         theta_d = np.clip(theta_d_raw, -self.max_tilt, self.max_tilt)
         phi_d   = np.clip(phi_d_raw,   -self.max_tilt, self.max_tilt)
 

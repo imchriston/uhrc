@@ -99,7 +99,6 @@ class QuadrotorDynamics:
     def pack_state(r_I, v_I, q_BI, omega_B, Omega):
         return np.concatenate([r_I, v_I, quat_euler.q_normalize(q_BI), omega_B, Omega])
 
-    # ----------------- Input handling (BODY WRENCH ONLY) -----------------
     
     def _inputs_to_forces(self,
     
@@ -160,7 +159,7 @@ class QuadrotorDynamics:
         tau_B = np.array([tau_x_cmd, tau_y_cmd, tau_z_cmd], dtype=float)
 
 
-        # Rotational damping (linear)
+        # Rotational damping 
         tau_B -= self.p.cd_rot * omega_B
 
         # Rigid body rotational dynamics: J ω_dot = τ - ω×(J ω)
@@ -176,40 +175,6 @@ class QuadrotorDynamics:
 
         return self.pack_state(dr, dv, dq, domega, dOmega)
 
-    # ----------------- Sensors -----------------
-
-    def imu(self,
-            x: NDArray[np.float64],
-            u: NDArray[np.float64],
-            input_type: Literal["body_wrench"],
-            accel_noise_std: float = 0.0,
-            gyro_noise_std: float = 0.0) :
-        """
-        IMU-like outputs in body frame: specific force (acc + gravity) and gyro ω_B.
-        """
-        r_I, v_I, q_BI, omega_B, _ = self.unpack_state(x)
-        R_BI = quat_euler.R_BI_from_q(q_BI); R_IB = R_BI.T
-        Ti, _, _ = self._inputs_to_forces(u, x, input_type)
-        F_B = np.array([0.0, 0.0, float(np.sum(Ti))])
-        F_T_I = R_IB @ F_B
-        F_g_I = np.array([0.0, 0.0, -self.p.g * self.p.mass])
-        F_drag_I = -self.p.cd_lin * v_I
-        a_I = (F_g_I + F_T_I + F_drag_I) / self.p.mass
-        # Specific force in body: f_B = R_BI(a_I - g_I)
-        g_I = np.array([0.0, 0.0, -self.p.g])
-        f_B = R_BI @ (a_I - g_I)
-        if accel_noise_std > 0:
-            f_B = f_B + np.random.randn(3) * accel_noise_std
-        gyro = omega_B.copy()
-        if gyro_noise_std > 0:
-            gyro = gyro + np.random.randn(3) * gyro_noise_std
-        return {"accel_body": f_B, "gyro_body": gyro}
-
-    def gps(self, x: NDArray[np.float64], pos_noise_std: float = 0.0, vel_noise_std: float = 0.0) :
-        r_I, v_I, *_ = self.unpack_state(x)
-        p = r_I + (np.random.randn(3) * pos_noise_std if pos_noise_std > 0 else 0.0)
-        v = v_I + (np.random.randn(3) * vel_noise_std if vel_noise_std > 0 else 0.0)
-        return {"pos_ENU": p, "vel_ENU": v}
 
 
 

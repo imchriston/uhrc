@@ -23,10 +23,7 @@ class PositionPI:
         self.pid_y = pid.PID(kp_di_y, -self.accel_max, self.accel_max, -self.i_max, self.i_max)
         self.pid_z = pid.PID(kp_di_z, -10.0, 10.0, -5.0, 5.0)
 
-        # ERROR LIMIT (CRITICAL FIX)
-        # 4.0 meters is the "Virtual Leash".
-        # With Kp ~ 3.0, this limits cruise accel to 12 m/s^2 (clamped to 6.0).
-        # It ensures velocity never exceeds what the D-term can stop.
+
         self.error_clamp = 4.0 
 
     def reset(self, r_I: NDArray[np.float64], r_ref: NDArray[np.float64]):
@@ -39,15 +36,12 @@ class PositionPI:
         ex = r_ref[0] - r_I[0]
         ey = r_ref[1] - r_I[1]
         
-        # 2. CLAMP ERRORS (The Fix)
-        # The PID only ever "sees" the target as being at most 4 meters away.
-        # This acts as a velocity limiter.
+        # 2. CLAMP ERRORS
         ex_clamped = np.clip(ex, -self.error_clamp, self.error_clamp)
         ey_clamped = np.clip(ey, -self.error_clamp, self.error_clamp)
         
         # 3. PID Step
-        # Note: We pass 'ex_clamped' for P/I terms, but v_I is passed for the D term.
-        # This means we limit our SPEED (P), but keep full DAMPING (D).
+
         ax = self.pid_x.step(ex_clamped, dt, d_meas=v_I[0])
         ay = self.pid_y.step(ey_clamped, dt, d_meas=v_I[1])
         

@@ -37,10 +37,8 @@ class UHRCController:
         self.action_mean = stats["action_mean"].to(device)
         self.action_std = stats["action_std"].to(device)
 
-        # Optional: stored by the dataset (recommended)
         self.input_mode = stats.get("input_mode", "state_ref")
 
-        # Robust: match the model input dim to your saved stats
         state_dim = int(stats["input_mean"].numel())
 
         # 2) Initialize Model Architecture
@@ -57,7 +55,7 @@ class UHRCController:
         )
         self.model = UHRC(self.config).to(device)
 
-        # 3) Load Weights
+        # Load Weights
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at {model_path}")
 
@@ -66,7 +64,6 @@ class UHRCController:
         self.model.load_state_dict(state_dict)
         self.model.eval()
 
-        # 4) Internal State
         self.carry = None
         self.ref = np.zeros(4, dtype=np.float64)
 
@@ -90,7 +87,6 @@ class UHRCController:
         """
         Standard controller interface.
         """
-        # 1) Handle Reference
         current_ref: NDArray[np.float64] = ref if ref is not None else self.ref
         expected_dim = int(self.input_mean.numel())
 
@@ -128,10 +124,10 @@ class UHRCController:
 
         x_tensor = torch.from_numpy(x_in).to(self.device)
 
-        # 3) Normalize
+        # Normalize
         x_norm = (x_tensor - self.input_mean) / self.input_std
 
-        # 4) Forward pass (recurrent)
+        # Forward pass
         with torch.no_grad():
             u_norm, new_carry = self.model(x_norm.unsqueeze(0), carry=self.carry)
             self.carry = None
@@ -143,9 +139,7 @@ class UHRCController:
         self.debug = True
         self.debug_log = []
 
-        # inside __call__ after computing u_out
         if self.debug:
-            # compute psi/e_yaw same way you build features
             q_BI = x[6:10]
             psi = yaw_from_q_BI_wxyz_np(q_BI)
             e_yaw = wrap_to_pi_np(current_ref[3] - psi)
@@ -161,7 +155,7 @@ class UHRCController:
             })
 
         # Clips
-        u_out[0] = np.clip(u_out[0], 0.0, 25.0)
+        u_out[0] = np.clip(u_out[0], 0.0, 20.0)
         u_out[1] = np.clip(u_out[1], -1.0, 1.0)
         u_out[2] = np.clip(u_out[2], -1.0, 1.0)
         u_out[3] = np.clip(u_out[3], -0.5, 0.5)

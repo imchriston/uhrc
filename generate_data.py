@@ -30,7 +30,7 @@ import controller.position as position_control
 import controller.attitude as angle_control
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-NUM_EPISODES   = 5000 # minimum for good generalisation — scale to 30k for best results
+NUM_EPISODES   = 500 
 STEPS          = 1500
 DT             = 0.01
 
@@ -41,22 +41,19 @@ GOAL_RANGE     = 15.0
 MAX_RANGE      = LIDAR_RANGE
 NUM_OBSTACLES  = 8
 
-OUTPUT_FILE    = "data/Astardata.npz"   # matches DATA_PATH in train_uhrc.py
+OUTPUT_FILE    = "data/expert_data.npz"   # matches DATA_PATH in train_uhrc.py
 
 V_MAX          = 2.0
 HOVER_STEPS    = 150   # steps to hover at goal after reaching it (1.5s at DT=0.01)
-                        # gives model 150 demonstrations of: v_subgoal=0, Fz≈9.81, τ≈0
-REACH_RADIUS   = 0.5   # metres — when to enter hover phase
+REACH_RADIUS   = 0.5   # success radius for reaching the goal (metres) — episode ends when reached
 
-# ── A* grid parameters ────────────────────────────────────────────────────────
+# ── A* grid parameters 
 GRID_RES       = 0.25    # metres per cell — finer = more accurate, slower
 GRID_MARGIN    = 2.0     # padding around start/goal bounding box (metres)
 INFLATE_RADIUS = 0.4     # robot body radius added to obstacle radii for safety
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-#  LiDAR (unchanged from original)
-# ──────────────────────────────────────────────────────────────────────────────
+#  LiDAR 
 
 LIDAR_ALT_GATE = 1.5
 
@@ -90,9 +87,7 @@ def get_lidar_scan(pos, yaw, obstacles, num_rays=32, fov=np.pi, max_range=5.0):
     return np.minimum(ranges, max_range).astype(np.float32)
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 #  A* PATH PLANNER
-# ──────────────────────────────────────────────────────────────────────────────
 
 class AStarPlanner:
     """
@@ -180,7 +175,7 @@ class AStarPlanner:
         """
         start, goal = self.start, self.goal
 
-        # If start or goal is inside an obstacle, planning will fail — report cleanly
+        # If start or goal is inside an obstacle, planning will fail 
         if self.grid[start[0], start[1]]:
             return None
         if self.grid[goal[0], goal[1]]:
@@ -219,8 +214,7 @@ class AStarPlanner:
 def smooth_path(path, iterations=3):
     """
     Simple path smoothing — iteratively replace each waypoint with the
-    average of itself and its neighbours. Reduces sharp corners from
-    grid quantisation without changing start/goal.
+    average of itself and its neighbours.
     """
     if len(path) <= 2:
         return path
@@ -233,9 +227,8 @@ def smooth_path(path, iterations=3):
     return [pts[i] for i in range(len(pts))]
 
 
-# ──────────────────────────────────────────────────────────────────────────────
+
 #  PATH TRACKER — converts waypoint path to velocity command
-# ──────────────────────────────────────────────────────────────────────────────
 
 class PathTracker:
     """
@@ -281,9 +274,7 @@ class PathTracker:
         return np.linalg.norm(np.array(pos_xy[:2]) - self.path[-1]) < tol
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-#  Forest sampling (unchanged from original)
-# ──────────────────────────────────────────────────────────────────────────────
+#  Forest sampling 
 
 def sample_forest(num_obs, start_xy, goal_xy):
     obstacles = []
@@ -337,9 +328,7 @@ def sample_forest(num_obs, start_xy, goal_xy):
     return obstacles
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 #  Observation builder (unchanged from original)
-# ──────────────────────────────────────────────────────────────────────────────
 
 def build_obs(r_I, v_I, q_BI, omega_B, goal, lidar_ranges, g_scalar):
     """Build 45-dim observation. Omega removed — always zero in simulator."""
@@ -361,21 +350,16 @@ def build_obs(r_I, v_I, q_BI, omega_B, goal, lidar_ranges, g_scalar):
         g_B.astype(np.float32),                                                    # 3   [6:9]
         goal_rel_B.astype(np.float32),                                             # 3   [9:12]
         goal_dist_norm,                                                            # 1   [12:13]
-        # Omega removed — rotor speeds are always zero in this simulator,
-        # so those 4 dims were dead weights. state_dim is now 45.
         np.clip(lidar_ranges / LIDAR_RANGE, 0.0, 1.0).astype(np.float32),        # 32  [13:45]
     ])                                                                             # = 45
     assert obs.shape == (45,), f"Expected 45-dim obs, got {obs.shape}"
     return obs
 
 
-# ──────────────────────────────────────────────────────────────────────────────
 #  Main
-# ──────────────────────────────────────────────────────────────────────────────
 
-SAVE_INTERVAL = 500    # flush every 500 successful episodes
-                        # with NUM_EPISODES=3000 this gives ~4-6 flushes
-                        # — crash-safe without excessive disk writes
+SAVE_INTERVAL = 500    
+                        
 
 
 def flush_to_disk(output_file, batch_obs, batch_actions, batch_subgoals,
@@ -430,7 +414,6 @@ def run():
     dyn    = dynamics.QuadrotorDynamics(params)
     g      = getattr(getattr(dyn, "p", None), "g", 9.81)
 
-    # In-memory batch — flushed to disk every SAVE_INTERVAL successful episodes
     batch_obs, batch_actions, batch_subgoals = [], [], []
     batch_done, batch_episode_id             = [], []
     batch_step_id, batch_obs_packs           = [], []
@@ -439,7 +422,6 @@ def run():
     no_path_count       = 0
     flush_count         = 0
 
-    # If a partial file exists, resume episode ID from where it left off
     if os.path.exists(OUTPUT_FILE):
         old = np.load(OUTPUT_FILE)
         successful_episodes = int(old["episode_id"].max()) + 1
@@ -456,13 +438,11 @@ def run():
         # 10% close    — 1-5m from goal, any direction
         # 10% recovery — start past/beside goal, teaches re-acquisition
         # 20% omni     — random start/goal in full arena, any direction
-        #                THIS is what fixes Y-direction and diagonal navigation
         ep_type = np.random.choice(
             ["normal", "no_obs", "close", "recovery", "omni", "tight_gap"],
             p=[0.35, 0.15, 0.10, 0.10, 0.20, 0.10]
         )
 
-        # Defaults — overwritten by every branch below
         start_x = np.random.uniform(-9.0, -6.0)
         start_y = np.random.uniform(-2.0,  2.0)
         goal_x  = np.random.uniform( 6.0,  9.0)
@@ -504,14 +484,12 @@ def run():
                     break
             n_obs_this_ep = np.random.randint(0, NUM_OBSTACLES + 1)
         elif ep_type == "tight_gap":
-            # Standard +X path but with a tight gap wall across the corridor.
-            # sample_forest places all obstacles, then we inject the gap pair.
-            # A* finds the gap; the model must learn to thread through it.
+
             start_x = np.random.uniform(-9.0, -6.0)
             start_y = np.random.uniform(-2.0,  2.0)
             goal_x  = np.random.uniform( 6.0,  9.0)
             goal_y  = np.random.uniform(-2.0,  2.0)
-            n_obs_this_ep = np.random.randint(1, 4)   # few extra obstacles
+            n_obs_this_ep = np.random.randint(1, 4)   
         else:  # normal
             start_x = np.random.uniform(-9.0, -6.0)
             start_y = np.random.uniform(-5.0,  5.0)
@@ -523,10 +501,8 @@ def run():
         goal  = np.array([goal_x,  goal_y,  0.0], dtype=np.float64)
         obstacles = sample_forest(n_obs_this_ep, start[:2], goal[:2])
 
-        # ── Inject tight-gap pair for tight_gap episodes ──────────────────────
-        # Two obstacles placed symmetrically across the path midpoint,
-        # leaving a gap of 0.8–1.5m directly in the drone's corridor.
-        # Gap width must be > INFLATE_RADIUS*2 + drone_body so A* can find it.
+        # Injects tight-gap pair for tight gap episodes 
+ 
         if ep_type == "tight_gap":
             p_vec  = goal[:2] - start[:2]
             p_len  = float(np.linalg.norm(p_vec))
@@ -549,15 +525,12 @@ def run():
 
         if path is None:
             no_path_count += 1
-            continue   # truly no navigable path — skip cleanly
+            continue   
 
         path    = smooth_path(path, iterations=5)
         tracker = PathTracker(path, lookahead=1.0, v_max=V_MAX)
 
-        # ── Simulate episode ──────────────────────────────────────────────────
         # Random initial yaw — model must learn to navigate from any heading,
-        # not just psi=0. Without this the model never sees non-zero yaw at
-        # the start of an episode and crashes when yaw drifts during avoidance.
         init_yaw = np.random.uniform(-np.pi, np.pi)
         cy, sy   = np.cos(init_yaw / 2), np.sin(init_yaw / 2)
         q_init   = np.array([cy, 0.0, 0.0, sy])   # yaw-only quaternion
@@ -575,8 +548,8 @@ def run():
 
         crashed      = False
         reached      = False
-        hover_count  = 0      # steps spent hovering at goal
-        in_hover     = False  # True once drone enters goal radius
+        hover_count  = 0      
+        in_hover     = False  
 
         for k in range(STEPS + HOVER_STEPS):
             r_I, v_I, q_BI, omega_B, Omega = dyn.unpack_state(x_curr)
@@ -588,27 +561,23 @@ def run():
 
             dist_to_goal = float(np.linalg.norm((goal - r_I)[:2]))
 
-            # ── Check if drone has entered goal radius ────────────────────────
+            # Check if drone has entered goal radius 
             if dist_to_goal < REACH_RADIUS and not in_hover:
                 in_hover = True
                 reached  = True
 
-            # ── Velocity command: hover at goal OR follow A* path ─────────────
             if in_hover:
                 # Zero velocity command — teaches the model to hold position.
-                # v_subgoal = [0,0,0], PID drives torques to zero, Fz → hover.
                 v_cmd_world = np.zeros(3)
                 hover_count += 1
             else:
                 v_cmd_world = tracker.get_velocity_command(r_I[:2])
 
-            # Body-frame subgoal for supervision
             R_BI      = quat_euler.R_BI_from_q(q_BI).T
             v_subgoal = (R_BI @ v_cmd_world).astype(np.float32)
 
             obs = build_obs(r_I, v_I, q_BI, omega_B, goal, lidar_ranges, g)
 
-            # ── Virtual target: hold at goal during hover ─────────────────────
             if in_hover:
                 r_virtual[:] = goal.copy()   # PID reference = goal position
             else:
@@ -633,7 +602,6 @@ def run():
                     crashed = True
                     break
 
-            # Done when: crashed, hover phase complete, or hard timeout
             done = bool(
                 crashed or
                 (in_hover and hover_count >= HOVER_STEPS) or
@@ -654,7 +622,7 @@ def run():
             x_curr  = step_rk4(dyn, t_curr, x_curr, u_expert, DT)
             t_curr += DT
 
-            # DAgger perturbations — only during approach, not during hover
+            # DAgger perturbations 
             if (not done) and (not in_hover) and (k > 20) and \
                (k % 50 == 0) and (np.random.rand() < 0.3):
                 r_p, v_p, q_p, w_p, Om_p = dyn.unpack_state(x_curr)
@@ -675,8 +643,7 @@ def run():
             if done:
                 break
 
-        # ── Episode quality validation ────────────────────────────────────────
-        # Before saving, verify the episode is actually useful for training.
+
         # Checks every ~100 steps that:
         #   1. dist-to-goal is decreasing overall (drone making progress)
         #   2. subgoal speed near goal is low (stopping behaviour present)
@@ -688,7 +655,6 @@ def run():
             ep_sub_arr  = np.array(ep_subgoals)
 
             # Check 1: dist-to-goal decreases over time
-            # goal_dist_norm is obs[:,12], multiply by GOAL_RANGE to get metres
             dist_samples = ep_obs_arr[::100, 12] * GOAL_RANGE
             n_samples    = len(dist_samples)
             if n_samples >= 3:
@@ -697,15 +663,13 @@ def run():
                     episode_ok = False   # drone didn't make meaningful progress
 
             # Check 2: subgoal speed drops near goal
-            # Near-goal steps: last HOVER_STEPS entries should have near-zero subgoal
             if reached and len(ep_sub_arr) > HOVER_STEPS:
                 hover_subs  = ep_sub_arr[-HOVER_STEPS:]
                 hover_speed = float(np.linalg.norm(hover_subs[:, :2], axis=1).mean())
                 if hover_speed > 0.3:
-                    # Hover phase had non-zero velocity — PathTracker bug or PID instability
                     episode_ok = False
 
-        # Only keep episodes that passed quality validation
+        # Only keep episodes that passed 
         if episode_ok:
             n = len(ep_obs)
             batch_obs.extend(ep_obs)
@@ -717,20 +681,17 @@ def run():
             batch_obs_packs.extend(ep_obs_packs)
             successful_episodes += 1
 
-            # Periodic flush every SAVE_INTERVAL successful episodes
             if successful_episodes % SAVE_INTERVAL == 0:
                 flush_count += 1
                 flush_to_disk(OUTPUT_FILE,
                               batch_obs, batch_actions, batch_subgoals,
                               batch_done, batch_episode_id, batch_step_id,
                               batch_obs_packs, flush_count)
-                # Clear in-memory batch after saving
                 batch_obs.clear();     batch_actions.clear()
                 batch_subgoals.clear(); batch_done.clear()
                 batch_episode_id.clear(); batch_step_id.clear()
                 batch_obs_packs.clear()
 
-    # ── Final flush for any remaining episodes ────────────────────────────────
     if batch_obs:
         flush_count += 1
         flush_to_disk(OUTPUT_FILE,
@@ -738,7 +699,6 @@ def run():
                       batch_done, batch_episode_id, batch_step_id,
                       batch_obs_packs, flush_count)
 
-    # ── Summary ───────────────────────────────────────────────────────────────
     final = np.load(OUTPUT_FILE)
     print(f"\n✅ Done — {OUTPUT_FILE}")
     print(f"   Successful episodes:  {successful_episodes:,} / {NUM_EPISODES:,}")
